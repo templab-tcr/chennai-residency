@@ -25,7 +25,14 @@ const pool = mysql.createPool({
   connectionLimit: Number(process.env.DB_POOL || 5), // shared hosting caps connections; keep small
   waitForConnections: true,
   connectTimeout: 10000,
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : undefined
+  ssl: process.env.DB_SSL === 'true'
+  ? {
+      rejectUnauthorized: true,
+      ca: process.env.DB_SSL_CA
+        ? process.env.DB_SSL_CA.replace(/\\n/g, '\n')
+        : undefined
+    }
+  : undefined
 });
 
 // Make NOW()/CURRENT_TIMESTAMP UTC on every connection.
