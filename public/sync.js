@@ -1,7 +1,13 @@
 /* Chennai Residency cloud sync.
    Keeps the IndexedDB copy the screen already uses and mirrors every save to /api/state.
    Loaded after the main app script: it wraps save(), and shows a sign-in / choice screen
-   only when the cloud copy and this device's copy need a decision. Nothing is overwritten silently. */
+   only when the cloud copy and this device's copy need a decision. Nothing is overwritten silently.
+
+   Change log (this version):
+   - FIX: a save made while an upload was in flight no longer gets marked "synced".
+     Each change now has a sequence number; "clean" is only recorded when no newer change happened.
+   - FIX: the upload always reads the live data at the moment it sends (no stale copy).
+   - Safer access to the main app's data (works even if it is not loaded yet). */
 (function () {
   'use strict';
   const API = '/api';
@@ -12,9 +18,18 @@
     del(k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // The main app keeps its data in a global `db`. Read it safely at the moment it is needed.
+  const currentData = () => (typeof db !== 'undefined' && db) ? db : {};
+
+  /* ---- Dirty tracking with a change counter (prevents losing edits made during an upload) ---- */
+  let changeSeq = 0;
   const isDirty = () => store.get(KEY.dirty) === '1';
-  const markDirty = () => store.set(KEY.dirty, '1');
-  const clearDirty = () => store.del(KEY.dirty);
+  function markDirty() { changeSeq++; store.set(KEY.dirty, '1'); }
+  function clearDirtyIfNoNewerChange(seqSent) {
+    if (changeSeq === seqSent) store.del(KEY.dirty);   // nothing changed while uploading
+    // otherwise keep the dirty flag: a newer upload will follow
+  }
 
   let ready = false;        // this device's copy is known to match the cloud, so saves are uploaded
   let declined = false;     // staff chose "this device only" for this visit
@@ -132,7 +147,7 @@
       if (r.status === 202) return screenLogin('This device is registered and waiting for admin approval. Ask the admin to approve it, then sign in again.');
       if (!r.ok) return screenLogin(r.body.error || 'Sign-in failed. Try again.');
       store.set(KEY.token, r.body.token);
-      boot();
+      boot(false);
     } catch (e) {
       screenLogin('No internet connection. Connect and try again.');
     }
@@ -171,7 +186,7 @@
       t.onerror = () => rej(t.error);
     });
     store.set(KEY.rev, rev);
-    clearDirty();
+    store.del(KEY.dirty);
     location.reload();
   }
 
@@ -181,6 +196,7 @@
       const s = await api('/state');
       if (!s.ok) return screenLogin('Could not reach the cloud copy. Try again.');
       store.set(KEY.rev, s.body.revision);
+      markDirty();                       // make sure the upload goes through
       settle(await pushState());
     } catch (e) { goOffline(); }
   }
@@ -211,7 +227,7 @@
     const raw = store.get(KEY.rev);
     const localRev = raw === null ? null : Number(raw);
     const dirty = isDirty();
-    const localHasData = hasData(db);
+    const localHasData = hasData(currentData());
 
     // Cloud copy is empty. The first device that has real data seeds it.
     if (serverRev === 0 && (localRev === null || localRev === 0)) {
@@ -243,13 +259,19 @@
   async function doPush() {
     if (!store.get(KEY.token)) { markDirty(); return 'auth'; }
     if (navigator.onLine === false) { markDirty(); status('Offline: will upload when connected', 'bad'); return 'offline'; }
+    const seqSent = changeSeq;                    // remember which changes this upload covers
     status('Uploading…', '');
     try {
       const r = await api('/state', {
         method: 'PUT',
-        body: JSON.stringify({ expectedRevision: Number(store.get(KEY.rev) || 0), payload: db })
+        body: JSON.stringify({ expectedRevision: Number(store.get(KEY.rev) || 0), payload: currentData() })
       });
-      if (r.ok) { store.set(KEY.rev, r.body.revision); clearDirty(); status('Synced ✓', 'ok'); return 'ok'; }
+      if (r.ok) {
+        store.set(KEY.rev, r.body.revision);
+        clearDirtyIfNoNewerChange(seqSent);
+        status(isDirty() ? 'Saved; uploading the rest…' : 'Synced ✓', isDirty() ? '' : 'ok');
+        return 'ok';
+      }
       markDirty();
       if (r.status === 409) { status('Conflict: needs a choice', 'bad'); return 'conflict'; }
       if (r.status === 401 || r.status === 403) { status('Sign in again', 'bad'); return 'auth'; }
