@@ -925,36 +925,41 @@ firebase.initializeApp({
 });
 const fbAuth = firebase.auth(), fbDb = firebase.firestore();
 
-// Asks for the staff email and password once per browser
-async function ensureStaffLogin(){
-  if (fbAuth.currentUser) return true;
-  const email = prompt("Staff email (for guest room sync):");
-  const pass = prompt("Password:");
-  try { await fbAuth.signInWithEmailAndPassword(email, pass); return true; }
-  catch(e){ alert("Guest sync login failed: " + e.message); return false; }
-}
 
 // Sends the room status to the guest page
 function pushRoomStatus(room, status){
   fbDb.collection("rooms").doc(String(room)).set(
-    {status, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: fbAuth.currentUser ? fbAuth.currentUser.email : ""},
-    {merge: true}
+    {
+      status,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: fbAuth.currentUser ? fbAuth.currentUser.email : ""
+    },
+    { merge: true }
   ).catch(e => console.warn("Room sync failed", e));
 }
 
 // Live list of open guest queries, with a Resolved button
 function startGuestQueries(){
-  fbDb.collection("issues").where("status","==","open").onSnapshot(snap => {
+  fbDb.collection("issues").where("status", "==", "open").onSnapshot(snap => {
     const el = document.getElementById("guestQueries");
     if (!el) return;
+
     el.innerHTML = snap.size ? snap.docs.map(d => {
       const i = d.data();
-      const t = String(i.message).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
-      return `<div style="border-top:1px solid #ddd;padding:8px 0"><b>Room ${i.room}</b>: ${t}
-        <br><button onclick="resolveQuery('${d.id}')">Mark resolved</button></div>`;
+      const t = String(i.message || "").replace(/[<>&]/g, c => ({
+        "<": "&lt;",
+        ">": "&gt;",
+        "&": "&amp;"
+      }[c]));
+
+      return `<div style="border-top:1px solid #ddd;padding:8px 0">
+        <b>Room ${i.room}</b>: ${t}
+        <br><button onclick="resolveQuery('${d.id}')">Mark resolved</button>
+      </div>`;
     }).join("") : "No open queries.";
-  });
+  }, e => console.warn("Guest query sync failed", e));
 }
+
 window.resolveQuery = id => fbDb.collection("issues").doc(id).update({status:"resolved"});
 
 fbAuth.onAuthStateChanged(u => { if (u) startGuestQueries(); });
