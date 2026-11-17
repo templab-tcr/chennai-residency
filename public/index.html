@@ -102,6 +102,7 @@ table th{background:var(--b3);color:var(--gold2)}
  <p class="note">Automation note: voice and screen alerts work while this app is open. Background monitoring while the app is closed, cloud AI analysis and automatic WhatsApp delivery require a secure backend/service connection.</p>
 </div><div class="box wa-panel"><h2>Guest WhatsApp Messages</h2>
 <p class="note">Send booking confirmations, daily 24-hour stay reminders and checkout thank-you messages. The app prepares WhatsApp messages for staff to review and send.</p>
+  <div class="box"><h2>Guest Queries (live)</h2><div id="guestQueries">Connecting…</div></div>
 <div id="waGuestList" class="scroll"></div></div><div class="box audit-shortcut"><h2>Monthly Audit</h2><p>Download GST tax invoices and monthly checkout summaries for your auditor.</p><button type="button" onclick="showTab('audit');renderAudit()">Open Audit &amp; Export</button></div><div class="box"><h2>Room Overview</h2><div class="rooms" id="dashRooms"></div></div><p class="note">Records and captured guest photos are stored in this browser's local database (IndexedDB) on this computer. They are not automatically synced to other devices or a cloud server. Back up data regularly.</p></section>
 
 <section id="checkin" class="tab hidden"><div class="box"><h2>Guest Check-in & Webcam Photo</h2>
@@ -962,9 +963,31 @@ function startGuestQueries(){
 
 window.resolveQuery = id => fbDb.collection("issues").doc(id).update({status:"resolved"});
 
+function syncAllRooms(){
+  if (typeof db === "undefined" || !db.rooms) return;
+  Object.values(db.rooms).forEach(r => {
+    const s = r.status === "Occupied" ? "occupied" : r.status === "clean" ? "clean" : "dirty";
+    pushRoomStatus(r.number, s);
+  });
+}
+
+async function ensureStaffLogin(){
+  if (fbAuth.currentUser) return;
+  const email = prompt("Staff email (guest queries & room sync):");
+  const pass = prompt("Password:");
+  if (!email || !pass) return;
+  try { await fbAuth.signInWithEmailAndPassword(email, pass); }
+  catch(e){ alert("Login failed: " + e.message); }
+}
+
 fbAuth.onAuthStateChanged(u => {
-  if (u) startGuestQueries();
+  if (u) {
+    startGuestQueries();
+    syncAllRooms();
+  }
 });
+
+
 </script>
 
 </body></html>
