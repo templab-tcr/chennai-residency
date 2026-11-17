@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Room – The Chennai Residency</title>
+<style>
+:root{--card:#4a1420;--gold:#e0b762;--cream:#fbf1e2;--line:rgba(224,183,98,.35)}
+*{box-sizing:border-box}
+body{margin:0;font-family:Georgia,"Times New Roman",serif;background:linear-gradient(180deg,#4a0f1a,#2a070d);color:var(--cream);min-height:100vh}
+header{text-align:center;padding:20px 16px 12px;border-bottom:1px solid var(--line)}
+header img{height:60px}
+header h1{margin:6px 0 0;font-size:16px;letter-spacing:2px;color:var(--gold)}
+main{max-width:460px;margin:0 auto;padding:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}
+.room-no{text-align:center;font-size:48px;font-weight:700;color:#fff;margin:4px 0}
+.center{text-align:center}
+.badge{display:inline-block;margin-top:10px;padding:8px 20px;border-radius:999px;font-size:15px;font-weight:700}
+.clean{background:#2e7d4f;color:#fff}.dirty{background:#c98a1a;color:#fff}.occupied{background:#8a1c2e;color:#fff}
+.small{font-size:12px;color:#bfa895}
+h2{margin:0 0 10px;font-size:16px;color:var(--gold)}
+.quick{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.quick button{width:auto;margin:0;padding:8px 12px;font-size:13px;background:transparent;border:1px solid var(--gold);color:var(--gold);border-radius:999px;cursor:pointer}
+textarea{width:100%;min-height:90px;padding:12px;border-radius:10px;border:1px solid var(--line);background:#2a0a10;color:var(--cream);font:inherit}
+button.send{width:100%;margin-top:12px;padding:13px;border:0;border-radius:12px;background:var(--gold);color:#3b0b12;font-weight:700;font-size:15px;cursor:pointer}
+.msg{margin-top:10px;font-size:14px;text-align:center;min-height:20px}
+.issue{border-top:1px solid var(--line);padding:10px 0;font-size:14px}
+.issue small{color:#bfa895}
+.hidden{display:none}
+footer{text-align:center;font-size:12px;color:#bfa895;padding:16px}
+footer a{color:var(--gold)}
+</style></head>
+<body>
+<header>
+  <img src="logo.png" alt="The Chennai Residency">
+  <h1>THE CHENNAI RESIDENCY</h1>
+</header>
+<main>
+  <div id="noRoom" class="card center hidden">
+    <h2>Enter your room number</h2>
+    <p class="small">Type the number of the room you are staying in, then tap Open.</p>
+    <input id="roomInput" inputmode="numeric" maxlength="3" placeholder="e.g. 101"
+      style="width:100%;padding:12px;border-radius:10px;border:1px solid rgba(224,183,98,.35);background:#2a0a10;color:#fbf1e2;font:inherit;text-align:center;font-size:20px">
+    <button class="send" id="openRoom">Open my room</button>
+    <div class="msg" id="roomMsg"></div>
+  </div>
+
+  <div id="roomPage" class="hidden">
+    <section class="card center">
+      <div class="small">You are in</div>
+      <div class="room-no" id="roomNo"></div>
+      <div id="statusBadge" class="badge">Checking…</div>
+      <div class="small" id="updated"></div>
+    </section>
+
+    <section class="card">
+      <h2>Raise a query</h2>
+      <p class="small">Tap a quick option, or type your problem below. Reception will see it at once.</p>
+      <div class="quick">
+        <button type="button" data-q="Room is not clean">Room not clean</button>
+        <button type="button" data-q="AC is not working">AC not working</button>
+        <button type="button" data-q="Water problem">Water problem</button>
+        <button type="button" data-q="TV or WiFi problem">TV / WiFi</button>
+        <button type="button" data-q="Need towels or bed sheets">Towels / sheets</button>
+      </div>
+      <textarea id="queryText" maxlength="300" placeholder="Describe the problem"></textarea>
+      <button class="send" id="sendQuery">Send to reception</button>
+      <div class="msg" id="queryMsg"></div>
+    </section>
+
+    <section class="card">
+      <h2>My queries</h2>
+      <div id="myQueries" class="small">No queries yet.</div>
+    </section>
+  </div>
+</main>
+<footer>
+  <a href="https://chennai-residency.onrender.com/" target="_blank" rel="noopener">The Chennai Residency – Hotel site</a>
+  <br>Reception: 7094000456
+</footer>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ===== PASTE YOUR FIREBASE WEB CONFIG HERE ===== */
+const FIREBASE_CONFIG = {
+  apiKey: "PASTE_API_KEY",
+  authDomain: "ledger-db-f93bd.firebaseapp.com",
+  projectId: "ledger-db-f93bd",
+  storageBucket: "ledger-db-f93bd.firebasestorage.app",
+  messagingSenderId: "520034497948",
+  appId: "1:520034497948:web:9cf06abc67bf9547e74459"
+};
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.firestore();
+
+const ROOMS = [101,102,103,104,105,201,202,203,204,205,206,207,208,209,301,302,303,304,305,306,307,308,309,401,402,403,404,405,406,407,408,409,410,411,412,413].map(String);
+const LABEL = {clean:"Clean & Ready", dirty:"Cleaning in progress", occupied:"Occupied"};
+const $ = id => document.getElementById(id);
+const room = new URLSearchParams(location.search).get("room");
+
+// Only this room's page opens. Any other value shows the "scan the QR" message.
+if (!room || !ROOMS.includes(room)) {
+  $("noRoom").classList.remove("hidden");
+  if (room) $("roomMsg").textContent = "Room " + room + " was not found. Please check the number.";
+  $("openRoom").onclick = () => {
+    const v = $("roomInput").value.trim();
+    if (!ROOMS.includes(v)) { $("roomMsg").textContent = "Please enter a valid room number."; return; }
+    location.href = location.pathname + "?room=" + v;
+  };
+  $("roomInput").addEventListener("keydown", e => { if (e.key === "Enter") $("openRoom").click(); });
+} else {
+  $("roomPage").classList.remove("hidden");
+  $("roomNo").textContent = "Room " + room;
+  showMyQueries();
+  // Live status: updates as soon as reception changes it
+  db.collection("rooms").doc(room).onSnapshot(doc => {
+    const st = (doc.data() || {}).status || "clean";
+    const b = $("statusBadge");
+    b.textContent = LABEL[st] || st;
+    b.className = "badge " + st;
+    const u = (doc.data() || {}).updatedAt;
+    $("updated").textContent = u ? "Updated " + u.toDate().toLocaleString("en-IN") : "";
+  });
+}
+
+document.querySelectorAll(".quick button").forEach(b => {
+  b.onclick = () => { $("queryText").value = b.dataset.q; };
+});
+
+$("sendQuery").onclick = async () => {
+  const text = $("queryText").value.trim();
+  if (text.length < 5) { $("queryMsg").textContent = "Please describe the problem (a few words)."; return; }
+  try {
+    await db.collection("issues").add({
+      room, message: text, status: "open",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (e) {
+    $("queryMsg").textContent = "Could not send. Please call reception: 7094000456";
+    return;
+  }
+  const mine = JSON.parse(localStorage.getItem("queries_" + room) || "[]");
+  mine.unshift({text, at: new Date().toLocaleString("en-IN"), status: "open"});
+  localStorage.setItem("queries_" + room, JSON.stringify(mine.slice(0, 20)));
+  $("queryText").value = "";
+  $("queryMsg").textContent = "Sent. Reception has been notified.";
+  showMyQueries();
+};
+
+function showMyQueries(){
+  const mine = JSON.parse(localStorage.getItem("queries_" + room) || "[]");
+  const esc = s => s.replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+  $("myQueries").innerHTML = mine.length
+    ? mine.map(q => `<div class="issue">${esc(q.text)}<br><small>${q.at} · ${q.status}</small></div>`).join("")
+    : "No queries yet.";
+}
+</script>
+</body></html>
