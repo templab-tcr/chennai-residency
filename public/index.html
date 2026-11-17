@@ -962,8 +962,9 @@ function startGuestQueries(){
 
 window.resolveQuery = id => fbDb.collection("issues").doc(id).update({status:"resolved"});
 
-fbAuth.onAuthStateChanged(u => { if (u) startGuestQueries(); });
-window.addEventListener("load", () => { ensureStaffLogin(); });
+fbAuth.onAuthStateChanged(u => {
+  if (u) startGuestQueries();
+});
 </script>
 
 </body></html>
